@@ -16,32 +16,52 @@ export default function Popup() {
   const nextStartTimeRef = useRef(0);
 
   useEffect(() => {
-    // Connect to background service worker
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect) {
-      console.log("Connecting to background.js...");
-      portRef.current = chrome.runtime.connect({ name: "gemini-audio-stream" });
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.connect) {
+    console.log("Connecting to background.js...");
+    portRef.current = chrome.runtime.connect({ name: "gemini-audio-stream" });
 
-      portRef.current.onMessage.addListener((response) => {
-        if (!response.success) {
-          console.error("Backend error:", response.error);
-          setError(response.error || 'Unknown error');
-          setStatus(`Error: ${response.error}`);
-          stopEverything();
-          return;
-        }
+    // ✅ AUTOMATION: Grab active tab context immediately upon opening popup
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (activeTab && activeTab.id) {
+        setStatus('Syncing tab data automatically... 📄');
+        
+        chrome.scripting.executeScript({
+          target: { tabId: activeTab.id },
+          func: () => document.body.innerText // Pulls readable text data, omitting massive raw HTML tags
+        }, (results) => {
+          if (results && results[0] && portRef.current) {
+            portRef.current.postMessage({
+              action: "process_page_context",
+              htmlData: results[0].result
+            });
+            setStatus('Webpage synced! Ready to talk. 🎙️');
+          }
+        });
+      }
+    });
 
-        if (response.audioData) {
-          setStatus('AI is responding... ✨');
-          playAudioChunk(response.audioData);
-        }
-      });
-    }
+    portRef.current.onMessage.addListener((response) => {
+      if (!response.success) {
+        console.error("Backend error:", response.error);
+        setError(response.error || 'Unknown error');
+        setStatus(`Error: ${response.error}`);
+        stopEverything();
+        return;
+      }
 
-    return () => {
-      stopEverything();
-      if (portRef.current) portRef.current.disconnect();
-    };
-  }, []);
+      if (response.audioData) {
+        setStatus('AI is responding... ✨');
+        playAudioChunk(response.audioData);
+      }
+    });
+  }
+
+  return () => {
+    stopEverything();
+    if (portRef.current) portRef.current.disconnect();
+  };
+}, []);
 
   // Helper: Convert Float32 array from mic to Int16 PCM Base64 safely
   const serializeFloat32ToInt16Base64 = (float32Array) => {

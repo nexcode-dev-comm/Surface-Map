@@ -11,6 +11,9 @@ const MAX_RETRIES = 3;
 // Variable to hold the API key dynamically in memory
 let MEMORY_API_KEY = "AIzaSyCz1ye_vzXDa35mh-dA6PCCNeIgkMlD2OE";
 
+// Cache for page text context if it arrives before socket setup is completed
+let cachedPageTextContext = null;
+
 // Queue voice data while connecting
 const voiceQueue = [];
 let isConnecting = false;
@@ -23,6 +26,34 @@ async function getApiKey() {
     throw new Error('API key not configured. Set the variable first.');
   }
   return MEMORY_API_KEY;
+}
+
+/**
+ * Sends the page context into Gemini's active memory pool
+ */
+function sendCachedPageContext() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !cachedPageTextContext) return;
+  
+  console.log("📄 Injecting page layout context text into Gemini context window memory...");
+  
+  const contentPayload = {
+    clientContent: {
+      turns: [{
+        role: "user",
+        parts: [{
+          text: `CONTEXT WINDOW SYSTEM DATA UPDATE: The user is looking at a webpage with the following text content. Save this inside your current session history. Use this text context to answer all future questions if the user mentions 'this tab', 'this page', or asks you to explain/summarize what they are looking at:\n\n--- WEBPAGE READABLE TEXT ---\n${cachedPageTextContext}`
+        }]
+      }],
+      turnComplete: false // false tells Gemini to ingest it silently without cutting off mic paths
+    }
+  };
+
+  try {
+    ws.send(JSON.stringify(contentPayload));
+    cachedPageTextContext = null; // Clear cache frame once dispatched cleanly
+  } catch (err) {
+    console.error("Failed to transmit page context string payload:", err);
+  }
 }
 
 /**
@@ -53,22 +84,19 @@ function initWebSocket(port, apiKey) {
 
   ws.onmessage = async (event) => {
     try {
-      let textData = "";
-      if (event.data instanceof Blob) {
-        textData = await event.data.text();
-      } else {
-        textData = event.data;
-      }
-
+      let textData = event.data instanceof Blob ? await event.data.text() : event.data;
       const responseData = JSON.parse(textData);
 
       if (responseData.setupComplete) {
-        console.log("✅ Gemini Live ready! Flushing queued voice chunks...");
+        console.log("✅ Gemini Live ready! Syncing page details and voice queues...");
         isSetupComplete = true;
         isConnecting = false;
         connectionAttempts = 0; 
         
-        // Drain the accumulated voice queue
+        // 1. Immediately inject the website text layout context if it's waiting in cache
+        sendCachedPageContext();
+
+        // 2. Drain the accumulated microphone loop voice queue
         while (voiceQueue.length > 0) {
           const queuedData = voiceQueue.shift();
           if (ws && ws.readyState === WebSocket.OPEN) {
@@ -83,7 +111,6 @@ function initWebSocket(port, apiKey) {
         for (const part of serverContent.modelTurn.parts) {
           if (part.inlineData?.data) {
             console.log("📢 Received audio chunk from Gemini...");
-            
             port.postMessage({
               success: true,
               audioData: part.inlineData.data,
@@ -94,10 +121,7 @@ function initWebSocket(port, apiKey) {
       }
     } catch (err) {
       console.error("❌ Failed to parse WebSocket message:", err);
-      port.postMessage({
-        success: false,
-        error: `Parse error: ${err.message}`
-      });
+      port.postMessage({ success: false, error: `Parse error: ${err.message}` });
     }
   };
 
@@ -105,11 +129,7 @@ function initWebSocket(port, apiKey) {
     console.error("❌ WebSocket error experienced:", error);
     isSetupComplete = false;
     isConnecting = false;
-    
-    port.postMessage({
-      success: false,
-      error: `WebSocket error: ${error.message || 'Unknown state'}`
-    });
+    port.postMessage({ success: false, error: `WebSocket error: ${error.message || 'Unknown state'}` });
   };
 
   ws.onclose = (event) => {
@@ -124,17 +144,11 @@ function initWebSocket(port, apiKey) {
           .then(key => initWebSocket(port, key))
           .catch(err => {
             console.error("Failed to reconnect automatically:", err);
-            port.postMessage({
-              success: false,
-              error: 'Connection lost. Please interact to re-try.'
-            });
+            port.postMessage({ success: false, error: 'Connection lost. Please interact to re-try.' });
           });
       }, 2000);
     } else {
-      port.postMessage({
-        success: false,
-        error: 'Max connection retries exceeded'
-      });
+      port.postMessage({ success: false, error: 'Max connection retries exceeded' });
     }
   };
 }
@@ -150,48 +164,44 @@ chrome.runtime.onConnect.addListener((port) => {
       .then(apiKey => initWebSocket(port, apiKey))
       .catch(err => {
         console.error("❌ Cannot get API key:", err);
-        port.postMessage({
-          success: false,
-          error: 'API key not configured'
-        });
+        port.postMessage({ success: false, error: 'API key not configured' });
       });
 
     port.onMessage.addListener((request) => {
+      // Handle uncompressed microphone PCM block streaming vectors
       if (request.action === "process_voice_command") {
-        
-        // Using the accurate 'chunks' wrapper format
         const messagePayload = {
           realtimeInput: {
-            audio : {
+            audio: {
               mimeType: "audio/pcm;rate=16000", 
               data: request.audioData          
             }
           }
         };
 
-        // Queue chunks safely if the websocket connection isn't finalized yet
         if (!ws || ws.readyState !== WebSocket.OPEN || !isSetupComplete) {
           if (connectionAttempts < MAX_RETRIES) {
-            console.warn("⏳ WebSocket / Setup not ready yet. Queueing voice data chunk...");
             voiceQueue.push(messagePayload);
-          } else {
-            port.postMessage({
-              success: false,
-              error: 'Connection channel unavailable. Unable to route voice command.'
-            });
           }
           return;
         }
 
-        // Send immediately if open and initialized
         try {
           ws.send(JSON.stringify(messagePayload));
         } catch (err) {
           console.error("Failed to transmit user voice payload:", err);
-          port.postMessage({
-            success: false,
-            error: `Transmission failed: ${err.message}`
-          });
+        }
+      }
+
+      // Handle page HTML context ingestion
+      if (request.action === "process_page_context") {
+        cachedPageTextContext = request.htmlData;
+        
+        // If the socket pipeline is already fully online, flush it immediately
+        if (ws && ws.readyState === WebSocket.OPEN && isSetupComplete) {
+          sendCachedPageContext();
+        } else {
+          console.log("⏳ Context saved to memory cache. Waiting for socket activation handshake...");
         }
       }
     });
@@ -199,6 +209,7 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onDisconnect.addListener(() => {
       console.log("🔌 Popup context closed. Cleaning up sockets and queues...");
       voiceQueue.length = 0;
+      cachedPageTextContext = null;
       if (ws) {
         ws.close();
         ws = null;
