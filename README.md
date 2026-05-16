@@ -1,70 +1,29 @@
-# Getting Started with Create React App
+# 👁️ AI Screen Explainer — Vocal Accessibility Companion
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+[![Chrome Extension](https://img.shields.io/badge/Platform-Chrome%20Extension-blue.svg)](https://developer.chrome.com/docs/extensions)
+[![React](https://img.shields.io/badge/Frontend-React-61dafb.svg)](https://react.dev/)
+[![Gemini](https://img.shields.io/badge/AI-Gemini%20Live%20Preview-orange.svg)](https://ai.google.dev/)
 
-## Available Scripts
+**AI Screen Explainer** is an intelligent, real-time voice accessibility companion built to serve as "eyes" for blind and visually impaired individuals. Operating as a Google Chrome Extension powered by a React frontend and the **Gemini 3.1 Flash Live Preview (Bidi) API**, this tool dynamically translates active webpage layout structures into smooth, context-aware, bidirectional conversational audio.
 
-In the project directory, you can run:
+---
 
-### `npm start`
+## 🌟 Core Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+* **Bidirectional Live Voice Streams:** Captures 16kHz microphone inputs via standard web audio streaming pipelines, serializing the data into Int16 PCM Base64 chunks transmitted straight over a WebSocket to Gemini's low-latency audio model.
+* **On-Demand Page Analysis:** Omits messy, unreadable raw HTML code clusters and automatically extracts readable text content (`document.body.innerText`) to build an optimized spatial understanding of the screen.
+* **Intelligent Silent Synchronization:** Syncs the current webpage data directly to the AI's short-term session buffer silently upon loading. The companion remains completely quiet until explicitly asked a question.
+* **Vocal Browser Control Integration:** Intercepts silent command markers embedded in the AI's textual responses to trigger native browser navigation actions dynamically based on user voice intent:
+  * `##ACTION:back##` — Go back to the previous webpage.
+  * `##ACTION:forward##` — Advance forward through history.
+  * `##ACTION:reload##` — Refresh/reload the current layout frame.
+  * `##ACTION:scroll_up##` / `##ACTION:scroll_down##` — Scroll cleanly up or down on the tab.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## 🏗️ Architecture & Pipeline Flow
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+The system splits operational logic completely between isolated Chrome execution layers using a persistent messaging port to prevent data drops when navigating between separate domains:
 
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1. **The User View (React Frontend Panel):** Captures multi-channel live speech recordings, decodes incoming 24kHz multi-channel response arrays from the backend port, handles layout rendering logic, and scrapes webpage boundaries using automated queries.
+2. **The Backbone (Background Service Worker):** Holds long-lived WebSocket handles (`wss://`) active throughout entire browsing sessions. It manages request queues when connection frames drop and controls Gemini Live configuration setups.

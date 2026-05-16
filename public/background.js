@@ -1,14 +1,11 @@
-/* 
-  ✅ AI Screen Explainer - Background Service Worker
-  Handles WebSocket connections to Gemini Live (v1beta Bidi API)
-*/
+let MEMORY_API_KEY = "AIzaSyBxe3SzZFHDOnjPjVyRDntSHa_4slrbdhM";
 
 let ws = null; 
 let isSetupComplete = false;
 let connectionAttempts = 0;
 const MAX_RETRIES = 3;
 
-let MEMORY_API_KEY = "AIzaSyAUA6gUXsE7nGWlAUVdLxbTgsYyiO03Akk";
+
 
 let cachedPageTextContext = null;
 
