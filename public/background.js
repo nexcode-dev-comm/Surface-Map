@@ -9,7 +9,7 @@ let connectionAttempts = 0;
 const MAX_RETRIES = 3;
 
 // Variable to hold the API key dynamically in memory
-let MEMORY_API_KEY = "AIzaSyCz1ye_vzXDa35mh-dA6PCCNeIgkMlD2OE";
+let MEMORY_API_KEY = "AIzaSyAUA6gUXsE7nGWlAUVdLxbTgsYyiO03Akk"
 
 // Cache for page text context if it arrives before socket setup is completed
 let cachedPageTextContext = null;
@@ -36,15 +36,31 @@ function sendCachedPageContext() {
   
   console.log("📄 Injecting page layout context text into Gemini context window memory...");
   
+  // ✅ FULLY OPTIMIZED & EXPANDED WEB TAB INGESTION PAYLOAD
   const contentPayload = {
     clientContent: {
-      turns: [{
-        role: "user",
-        parts: [{
-          text: `CONTEXT WINDOW SYSTEM DATA UPDATE: The user is looking at a webpage with the following text content. Save this inside your current session history. Use this text context to answer all future questions if the user mentions 'this tab', 'this page', or asks you to explain/summarize what they are looking at:\n\n--- WEBPAGE READABLE TEXT ---\n${cachedPageTextContext}`
-        }]
-      }],
-      turnComplete: false // false tells Gemini to ingest it silently without cutting off mic paths
+      turns: [
+        {
+          role: "user",
+          parts: [
+            {
+              // PART 1: The web tab data layout
+              text: `--- START ACCESSIBILITY WEBPAGE CONTENT ---\n${cachedPageTextContext}\n--- END ACCESSIBILITY WEBPAGE CONTENT ---`
+            },
+            {
+              // PART 2: YOUR EXACT RULES
+              text: `CRITICAL SYSTEM INSTRUCTION OVERRIDE:
+                     1. ACT AS A VOCAL ACCESSIBILITY COMPANION: The user is blind and cannot see their open browser tab. You are their eyes.
+                     2. INITIAL SILENCE: Even though you have just received this webpage data, do NOT speak, do NOT welcome the user, and do NOT summarize it yet. Stay completely silent.
+                     3. STAND BY: Wait quietly until the user asks a question via their microphone.
+                     4. EXPLAIN ON DEMAND: When the user asks a question (e.g., "What's on this page?", "Explain this tab", or asks for specific details), use the webpage text content provided above to verbally explain and paint a clear story of what is on their screen. Keep your spoken language vivid, structured, and easy to navigate by ear.
+                     5xnger explanation`
+            }
+          ]
+        }
+      ],
+      // false guarantees the model ingests the page silently on startup
+      turnComplete: false 
     }
   };
 
