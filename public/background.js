@@ -8,13 +8,10 @@ let isSetupComplete = false;
 let connectionAttempts = 0;
 const MAX_RETRIES = 3;
 
-// Variable to hold the API key dynamically in memory
-let MEMORY_API_KEY = "AIzaSyAUA6gUXsE7nGWlAUVdLxbTgsYyiO03Akk"
+let MEMORY_API_KEY = "AIzaSyAUA6gUXsE7nGWlAUVdLxbTgsYyiO03Akk";
 
-// Cache for page text context if it arrives before socket setup is completed
 let cachedPageTextContext = null;
 
-// Queue voice data while connecting
 const voiceQueue = [];
 let isConnecting = false;
 
@@ -34,9 +31,8 @@ async function getApiKey() {
 function sendCachedPageContext() {
   if (!ws || ws.readyState !== WebSocket.OPEN || !cachedPageTextContext) return;
   
-  console.log("📄 Injecting page layout context text into Gemini context window memory...");
+  console.log("📄 Injecting page layout context into Gemini context window memory...");
   
-  // ✅ FULLY OPTIMIZED & EXPANDED WEB TAB INGESTION PAYLOAD
   const contentPayload = {
     clientContent: {
       turns: [
@@ -44,31 +40,48 @@ function sendCachedPageContext() {
           role: "user",
           parts: [
             {
-              // PART 1: The web tab data layout
               text: `--- START ACCESSIBILITY WEBPAGE CONTENT ---\n${cachedPageTextContext}\n--- END ACCESSIBILITY WEBPAGE CONTENT ---`
             },
             {
-              // PART 2: YOUR EXACT RULES
               text: `CRITICAL SYSTEM INSTRUCTION OVERRIDE:
                      1. ACT AS A VOCAL ACCESSIBILITY COMPANION: The user is blind and cannot see their open browser tab. You are their eyes.
+                     
                      2. INITIAL SILENCE: Even though you have just received this webpage data, do NOT speak, do NOT welcome the user, and do NOT summarize it yet. Stay completely silent.
+                     
                      3. STAND BY: Wait quietly until the user asks a question via their microphone.
+                     
                      4. EXPLAIN ON DEMAND: When the user asks a question (e.g., "What's on this page?", "Explain this tab", or asks for specific details), use the webpage text content provided above to verbally explain and paint a clear story of what is on their screen. Keep your spoken language vivid, structured, and easy to navigate by ear.
-                     5xnger explanation`
+                     
+                     5. KEEP RESPONSES CONCISE: Do not over-explain. Give clear, structured, and not overly long explanations.
+                     
+                     6. NAVIGATION ACTIONS: If the user says anything related to navigation or scrolling, you must do TWO things simultaneously:
+                        - FIRST: Speak a short confirmation out loud to the user in their language.
+                        - SECOND: Include one of these exact silent markers in your text response:
+                        
+                          ##ACTION:back##         — go back (e.g. "go back", "назад", "вернись", "сделай назад", "сделай в заде")
+                          ##ACTION:forward##      — go forward (e.g. "go forward", "вперёд", "иди вперёд")
+                          ##ACTION:reload##       — reload page (e.g. "reload", "refresh", "обнови", "перезагрузи")
+                          ##ACTION:scroll_up##    — scroll up (e.g. "scroll up", "вверх", "листай вверх", "иди вверх")
+                          ##ACTION:scroll_down##  — scroll down (e.g. "scroll down", "вниз", "листай вниз", "иди вниз")
+                        
+                        Examples:
+                        - User says "назад давай" → confirm "Going back" → include ##ACTION:back##
+                        - User says "scroll down" → confirm "Scrolling down" → include ##ACTION:scroll_down##
+                        - User says "вверх" → confirm "Scrolling up" → include ##ACTION:scroll_up##
+                        - User says "сделай в заде" → understand they mean go back → confirm "Going back" → include ##ACTION:back##`
             }
           ]
         }
       ],
-      // false guarantees the model ingests the page silently on startup
       turnComplete: false 
     }
   };
 
   try {
     ws.send(JSON.stringify(contentPayload));
-    cachedPageTextContext = null; // Clear cache frame once dispatched cleanly
+    cachedPageTextContext = null;
   } catch (err) {
-    console.error("Failed to transmit page context string payload:", err);
+    console.error("Failed to transmit page context payload:", err);
   }
 }
 
@@ -109,10 +122,10 @@ function initWebSocket(port, apiKey) {
         isConnecting = false;
         connectionAttempts = 0; 
         
-        // 1. Immediately inject the website text layout context if it's waiting in cache
+        // Inject cached page context immediately
         sendCachedPageContext();
 
-        // 2. Drain the accumulated microphone loop voice queue
+        // Drain queued voice messages
         while (voiceQueue.length > 0) {
           const queuedData = voiceQueue.shift();
           if (ws && ws.readyState === WebSocket.OPEN) {
@@ -125,6 +138,8 @@ function initWebSocket(port, apiKey) {
       const serverContent = responseData.serverContent;
       if (serverContent?.modelTurn?.parts) {
         for (const part of serverContent.modelTurn.parts) {
+          
+          // Handle audio response chunks
           if (part.inlineData?.data) {
             console.log("📢 Received audio chunk from Gemini...");
             port.postMessage({
@@ -133,6 +148,21 @@ function initWebSocket(port, apiKey) {
               mimeType: "audio/pcm;rate=24000" 
             });
           }
+
+          // Handle navigation action markers in text response
+          if (part.text) {
+            console.log("📝 Text part from Gemini:", part.text);
+            const actionMatch = part.text.match(/##ACTION:(\w+)##/);
+            if (actionMatch) {
+              const action = actionMatch[1]; // "back", "forward", "reload", "scroll_up", "scroll_down"
+              console.log(`🎯 Navigation action detected: ${action}`);
+              port.postMessage({
+                success: true,
+                action: action
+              });
+            }
+          }
+
         }
       }
     } catch (err) {
@@ -142,7 +172,7 @@ function initWebSocket(port, apiKey) {
   };
 
   ws.onerror = (error) => {
-    console.error("❌ WebSocket error experienced:", error);
+    console.error("❌ WebSocket error:", error);
     isSetupComplete = false;
     isConnecting = false;
     port.postMessage({ success: false, error: `WebSocket error: ${error.message || 'Unknown state'}` });
@@ -154,23 +184,23 @@ function initWebSocket(port, apiKey) {
     isConnecting = false;
 
     if (connectionAttempts < MAX_RETRIES) {
-      console.log(`Retrying connection handling (${connectionAttempts}/${MAX_RETRIES})...`);
+      console.log(`Retrying connection (${connectionAttempts}/${MAX_RETRIES})...`);
       setTimeout(() => {
         getApiKey()
           .then(key => initWebSocket(port, key))
           .catch(err => {
-            console.error("Failed to reconnect automatically:", err);
-            port.postMessage({ success: false, error: 'Connection lost. Please interact to re-try.' });
+            console.error("Failed to reconnect:", err);
+            port.postMessage({ success: false, error: 'Connection lost. Please interact to retry.' });
           });
       }, 2000);
     } else {
-      port.postMessage({ success: false, error: 'Max connection retries exceeded' });
+      port.postMessage({ success: false, error: 'Max connection retries exceeded.' });
     }
   };
 }
 
 /**
- * Long-lived connection channel handler for the Frontend Popup / UI 
+ * Long-lived connection handler for the Frontend Popup / UI
  */
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "gemini-audio-stream") {
@@ -180,11 +210,12 @@ chrome.runtime.onConnect.addListener((port) => {
       .then(apiKey => initWebSocket(port, apiKey))
       .catch(err => {
         console.error("❌ Cannot get API key:", err);
-        port.postMessage({ success: false, error: 'API key not configured' });
+        port.postMessage({ success: false, error: 'API key not configured.' });
       });
 
     port.onMessage.addListener((request) => {
-      // Handle uncompressed microphone PCM block streaming vectors
+
+      // Stream microphone PCM audio to Gemini
       if (request.action === "process_voice_command") {
         const messagePayload = {
           realtimeInput: {
@@ -205,25 +236,24 @@ chrome.runtime.onConnect.addListener((port) => {
         try {
           ws.send(JSON.stringify(messagePayload));
         } catch (err) {
-          console.error("Failed to transmit user voice payload:", err);
+          console.error("Failed to transmit voice payload:", err);
         }
       }
 
-      // Handle page HTML context ingestion
+      // Ingest page HTML context
       if (request.action === "process_page_context") {
         cachedPageTextContext = request.htmlData;
         
-        // If the socket pipeline is already fully online, flush it immediately
         if (ws && ws.readyState === WebSocket.OPEN && isSetupComplete) {
           sendCachedPageContext();
         } else {
-          console.log("⏳ Context saved to memory cache. Waiting for socket activation handshake...");
+          console.log("⏳ Page context cached. Waiting for socket handshake...");
         }
       }
     });
 
     port.onDisconnect.addListener(() => {
-      console.log("🔌 Popup context closed. Cleaning up sockets and queues...");
+      console.log("🔌 Popup closed. Cleaning up sockets and queues...");
       voiceQueue.length = 0;
       cachedPageTextContext = null;
       if (ws) {
@@ -235,12 +265,13 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 /**
- * Single message listener for setting global variable states across extension scopes
+ * One-time message listener for setting the API key globally
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "SET_API_KEY") {
     MEMORY_API_KEY = message.key;
-    console.log("🔑 API Key successfully assigned in background memory variable.");
+    console.log("🔑 API key assigned to background memory.");
     sendResponse({ success: true });
   }
 });
+
